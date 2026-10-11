@@ -44,6 +44,16 @@ def elbow_silhouette(X: np.ndarray, k_range=config.K_CANDIDATES, seed: int = con
     return pd.DataFrame(rows)
 
 
+def partition_agreement(labels_a, labels_b) -> float:
+    """Adjusted Rand Index between two labelings of the same points.
+
+    ARI is invariant to label permutation, which is what makes it the right
+    comparison for K-Means: two runs that find the same partition under
+    different arbitrary cluster ids score 1.0.
+    """
+    return float(adjusted_rand_score(labels_a, labels_b))
+
+
 def stability_ari(X: np.ndarray, k: int = config.N_CLUSTERS, seeds=config.STABILITY_SEEDS) -> pd.DataFrame:
     """Refit K-Means across several seeds; clusters that survive re-initialization
     are real structure, not an artifact of a lucky starting point."""
@@ -53,7 +63,7 @@ def stability_ari(X: np.ndarray, k: int = config.N_CLUSTERS, seeds=config.STABIL
         for seed in seeds
     }
     rows = [
-        {"seed_a": s1, "seed_b": s2, "ari": float(adjusted_rand_score(labelings[s1], labelings[s2]))}
+        {"seed_a": s1, "seed_b": s2, "ari": partition_agreement(labelings[s1], labelings[s2])}
         for s1, s2 in combinations(seeds, 2)
     ]
     return pd.DataFrame(rows)
