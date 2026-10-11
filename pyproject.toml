@@ -3,6 +3,8 @@ name = "partnerlens"
 version = "0.1.0"
 description = "Seller segmentation and partner health scoring on the Olist marketplace dataset."
 requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
