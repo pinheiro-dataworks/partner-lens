@@ -281,7 +281,7 @@ plt.tight_layout()
 plt.show()'''),
     ("code", '''\
 sweep = []
-for mult in [0.5, 0.75, 1.0, 1.25, 1.5]:
+for mult in config.DBSCAN_EPS_MULTIPLIERS:
     r = clustering.run_dbscan(X, eps=eps_knee * mult)
     r.pop("labels")
     r["eps_multiplier"] = mult

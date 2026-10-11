@@ -50,24 +50,24 @@ def compute_health_score(df: pd.DataFrame, bounds: dict, weights: dict = config.
     return (100 * score).clip(0, 100)
 
 
-def health_tier(score: float) -> str:
-    if score >= 75:
-        return "Strong"
-    if score >= 50:
-        return "Stable"
-    if score >= 30:
-        return "Fragile"
+TIER_COLORS = {
+    "Strong": config.PALETTE["green"],
+    "Stable": config.PALETTE["gold"],
+    "Fragile": config.PALETTE["rust"],
+    "Critical": config.PALETTE["red"],
+}
+
+
+def health_tier(score: float, tiers: dict[str, float] = config.HEALTH_TIERS) -> str:
+    """Highest tier whose lower bound the score reaches; "Critical" below all of them."""
+    for name, lower_bound in sorted(tiers.items(), key=lambda kv: kv[1], reverse=True):
+        if score >= lower_bound:
+            return name
     return "Critical"
 
 
 def health_tier_color(score: float) -> str:
-    if score >= 75:
-        return config.PALETTE["green"]
-    if score >= 50:
-        return config.PALETTE["gold"]
-    if score >= 30:
-        return config.PALETTE["rust"]
-    return config.PALETTE["red"]
+    return TIER_COLORS[health_tier(score)]
 
 
 def build_cluster_profile_table(

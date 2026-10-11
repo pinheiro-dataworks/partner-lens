@@ -83,7 +83,7 @@ def main() -> None:
 
     log("Sweeping eps around the knee to show the merge/fragment transition...")
     dbscan_sweep = []
-    for mult in [0.5, 0.75, 1.0, 1.25, 1.5]:
+    for mult in config.DBSCAN_EPS_MULTIPLIERS:
         r = clustering.run_dbscan(X_eligible, eps=eps_estimate * mult)
         r.pop("labels")
         r["eps_multiplier"] = mult

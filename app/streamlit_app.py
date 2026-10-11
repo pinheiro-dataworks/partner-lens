@@ -331,7 +331,7 @@ def render_overview(sellers: pd.DataFrame, profiles: list[dict], diagnostics: di
     )
 
     eligible = sellers[sellers["cluster"] != -1]
-    active_mask = sellers["recency_days"] <= 90
+    active_mask = sellers["recency_days"] <= config.ACTIVE_WINDOW_DAYS
     total_revenue = sellers["total_revenue"].sum()
     avg_health = np.average(sellers["health_score"], weights=sellers["total_revenue"].clip(lower=1))
     avg_neg_review = sellers["neg_review_rate"].mean()
@@ -339,7 +339,7 @@ def render_overview(sellers: pd.DataFrame, profiles: list[dict], diagnostics: di
     c1, c2, c3, c4 = st.columns(4)
     with c1:
         kpi_card(
-            "Sellers Active (≤90d)",
+            f"Sellers Active (≤{config.ACTIVE_WINDOW_DAYS}d)",
             fmt_int(active_mask.sum()),
             f"{100*active_mask.mean():.1f}% of {fmt_int(len(sellers))} sellers",
             extra_class="kpirow",
