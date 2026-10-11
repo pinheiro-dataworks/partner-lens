@@ -1,0 +1,57 @@
+# Modeling parameters for the PartnerLens pipeline.
+#
+# Everything that changes the trained segmentation or the health score lives
+# here, so a re-run with different settings is a config diff, not a code
+# change. Paths, labels and the app palette stay in src/config.py because
+# they describe the repository layout and presentation, not the model.
+
+seed: 42
+
+segmentation:
+  # Sellers with fewer distinct orders than this have degenerate rate-based
+  # features (a negative-review rate can only be 0%, 50% or 100% on 1-2
+  # orders). They are excluded from K-Means and reported as "New / Low Data".
+  # Sensitivity analysis: notebooks/02_features.ipynb.
+  min_orders_threshold: 5
+
+clustering:
+  # Chosen on elbow + silhouette + ARI stability + business interpretability;
+  # see notebooks/03_clustering.ipynb.
+  n_clusters: 5
+  k_candidates: [2, 3, 4, 5, 6, 7, 8, 9, 10]
+  kmeans_n_init: 20
+  stability_seeds: [1, 7, 21, 42, 99]
+
+dbscan:
+  # Stress test only, never the delivered segmentation.
+  min_samples: 15
+  eps_sweep_multipliers: [0.5, 0.75, 1.0, 1.25, 1.5]
+
+features:
+  # Candidate set shown on the correlation diagnostic, before the drop decision.
+  candidate: [log_revenue, log_frequency, recency_days, avg_delay_days, neg_review_rate, cancel_rate]
+  # log_frequency is dropped: it correlates at 0.80 with log_revenue on the
+  # eligible population, which would double-weight the "scale" dimension.
+  cluster: [log_revenue, recency_days, avg_delay_days, neg_review_rate, cancel_rate]
+
+health_score:
+  # Quality (delay + neg_review + cancel = 0.55) is weighted above volume
+  # (revenue + frequency + recency = 0.45): one bad partner erodes buyer
+  # trust across the whole platform, not just their own GMV.
+  weights:
+    revenue: 0.20
+    frequency: 0.10
+    recency: 0.15
+    delay: 0.20
+    neg_review: 0.25
+    cancel: 0.10
+  # Lower bound (inclusive) of each tier on the 0-100 scale.
+  tiers:
+    Strong: 75
+    Stable: 50
+    Fragile: 30
+
+app:
+  # A seller counts as "active" on the Overview tab if their last order is
+  # within this many days of the dataset's reference date.
+  active_window_days: 90

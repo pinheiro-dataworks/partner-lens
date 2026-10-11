@@ -1,9 +1,13 @@
 """Central configuration for the PartnerLens pipeline.
 
-Every path, seed, threshold and weight used across notebooks and src/ modules
-is defined here so there is a single place to answer "where is X decided?".
+Modeling parameters (seed, thresholds, k, health-score weights) are read from
+configs/pipeline.yaml; repository paths, labels and the app palette are
+defined here. Every other module imports from this one, so there is a single
+place to answer "where is X decided?".
 """
 from pathlib import Path
+
+import yaml
 
 # ---------------------------------------------------------------- paths ----
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -32,52 +36,52 @@ PROCESSED_FILES = {
     "data_quality_report": DATA_PROCESSED_DIR / "data_quality_report.json",
 }
 
-# ---------------------------------------------------------- reproducibility --
-SEED = 42
+# ------------------------------------------------------- modeling config --
+# Seeds, thresholds, k and health-score weights are read from YAML so that a
+# re-run with different settings is a config change rather than a code edit.
+# The constants below are the stable import surface for src/, scripts,
+# notebooks and the app.
+CONFIG_PATH = ROOT_DIR / "configs" / "pipeline.yaml"
 
-# ------------------------------------------------------------- thresholds --
-# Sellers with fewer distinct orders than this have degenerate rate-based
-# features (e.g. a negative-review rate that can only be 0%, 50% or 100% on
-# 1-2 orders), which distorts cluster centroids. They are excluded from the
-# clustering population but never dropped from the business layer: they are
-# reported as a separate "New / Low Data" bucket. See
-# notebooks/02_features.ipynb for the sensitivity analysis behind this value.
-MIN_ORDERS_THRESHOLD = 5
 
-# Chosen k for the delivered segmentation. Selected via elbow + silhouette +
-# stability (ARI across seeds) + business interpretability -- the full
-# reasoning is in notebooks/03_clustering.ipynb and the app's Methodology tab.
-N_CLUSTERS = 5
-K_CANDIDATES = list(range(2, 11))
+def load_pipeline_config(path: Path = CONFIG_PATH) -> dict:
+    with open(path, encoding="utf-8") as f:
+        return yaml.safe_load(f)
 
-KMEANS_N_INIT = 20
-STABILITY_SEEDS = [1, 7, 21, 42, 99]
 
-# DBSCAN is run as a critical stress test, never as the delivered segmentation
-# (see Methodology tab for why density-based clustering doesn't fit this
-# feature space). min_samples follows the common eps ~ 2 * n_features heuristic
-# capped to a business-meaningful minimum cluster size.
-DBSCAN_MIN_SAMPLES = 15
+_cfg = load_pipeline_config()
+
+SEED: int = _cfg["seed"]
+
+MIN_ORDERS_THRESHOLD: int = _cfg["segmentation"]["min_orders_threshold"]
+
+N_CLUSTERS: int = _cfg["clustering"]["n_clusters"]
+K_CANDIDATES: list[int] = list(_cfg["clustering"]["k_candidates"])
+KMEANS_N_INIT: int = _cfg["clustering"]["kmeans_n_init"]
+STABILITY_SEEDS: list[int] = list(_cfg["clustering"]["stability_seeds"])
+
+DBSCAN_MIN_SAMPLES: int = _cfg["dbscan"]["min_samples"]
+DBSCAN_EPS_MULTIPLIERS: list[float] = list(_cfg["dbscan"]["eps_sweep_multipliers"])
 
 # Features feeding the clustering model, in original business units before
 # scaling. Monetary/count features are log1p-transformed (see features.py)
 # because revenue and order volume are heavily right-skewed by a small number
 # of high-GMV sellers, which would otherwise dominate Euclidean distance.
 RAW_FEATURES = ["total_revenue", "frequency", "recency_days", "avg_delay_days", "neg_review_rate", "cancel_rate"]
+CANDIDATE_FEATURES: list[str] = list(_cfg["features"]["candidate"])
+CLUSTER_FEATURES: list[str] = list(_cfg["features"]["cluster"])
 
-# Candidate set shown on the Feature Correlation chart, BEFORE the drop
-# decision below -- this is what the diagnostic is for.
-CANDIDATE_FEATURES = ["log_revenue", "log_frequency", "recency_days", "avg_delay_days", "neg_review_rate", "cancel_rate"]
+HEALTH_SCORE_WEIGHTS: dict[str, float] = dict(_cfg["health_score"]["weights"])
+# Components grouped by what they measure. The quality/volume split is the
+# business decision behind the weights (0.55 vs 0.45), so it is asserted in
+# tests rather than left implicit in the numbers.
+HEALTH_SCORE_GROUPS = {
+    "quality": ["delay", "neg_review", "cancel"],
+    "volume": ["revenue", "frequency", "recency"],
+}
+HEALTH_TIERS: dict[str, float] = dict(_cfg["health_score"]["tiers"])
 
-# log_revenue and log_frequency correlate at 0.80 on the eligible population
-# (see notebooks/03_clustering.ipynb / Methodology tab) -- comfortably past
-# the ~0.7 flag threshold. Keeping both would double-weight one underlying
-# "scale" dimension in Euclidean distance. Decision: drop frequency from the
-# clustering feature set and keep revenue, since revenue already captures
-# both order count and ticket size and is the more business-critical axis
-# for GMV-based prioritization. Frequency is not discarded from the project
-# -- it still feeds the health score and every profile card.
-CLUSTER_FEATURES = ["log_revenue", "recency_days", "avg_delay_days", "neg_review_rate", "cancel_rate"]
+ACTIVE_WINDOW_DAYS: int = _cfg["app"]["active_window_days"]
 
 FEATURE_LABELS = {
     "log_revenue": "Revenue (log)",
@@ -94,21 +98,6 @@ FEATURE_LABELS = {
 # recency, delay, negative reviews and cancellations are "bad when high", so
 # they enter the health score inverted.
 INVERTED_FEATURES = {"recency_days", "avg_delay_days", "neg_review_rate", "cancel_rate"}
-
-# Health score weights (sum to 1.0). Quality (delay + negative reviews +
-# cancellations = 0.55) is weighted above raw volume (revenue + frequency +
-# recency = 0.45) on purpose: in a marketplace, the cost of one bad partner is
-# buyer-trust erosion that bleeds into the whole platform, not just their own
-# GMV. This is a business decision, not a statistical one -- documented here
-# so it is never "numerology" (see Methodology tab).
-HEALTH_SCORE_WEIGHTS = {
-    "revenue": 0.20,
-    "frequency": 0.10,
-    "recency": 0.15,
-    "delay": 0.20,
-    "neg_review": 0.25,
-    "cancel": 0.10,
-}
 
 # ------------------------------------------------------------------ design --
 PALETTE = {
@@ -129,11 +118,22 @@ PALETTE = {
     "green": "#6FBF7D",
 }
 
-# Assigned to clusters in rank order (highest health score first) at profiling
-# time -- see profiling.name_segments(). Kept separate from cluster_id because
-# raw KMeans labels are arbitrary and not stable in meaning across re-runs.
-SEGMENT_COLOR_ORDER = [PALETTE["gold"], PALETTE["teal"], PALETTE["violet"], PALETTE["rust"], PALETTE["red"]]
+# Keyed by segment key, never by cluster id: raw K-Means labels are arbitrary
+# and not stable in meaning across re-runs (see profiling.name_segments()).
+SEGMENT_COLORS = {
+    "premium": PALETTE["gold"],
+    "emerging": PALETTE["teal"],
+    "declining": PALETTE["violet"],
+    "underperforming": PALETTE["rust"],
+    "atrisk": PALETTE["red"],
+}
 EXCLUDED_SEGMENT_COLOR = PALETTE["text_tertiary"]
+
+# Sellers below MIN_ORDERS_THRESHOLD are not clustered; they carry this
+# sentinel cluster id and segment instead.
+NEW_LOW_DATA_CLUSTER = -1
+NEW_LOW_DATA_KEY = "new_low_data"
+NEW_LOW_DATA_NAME = "New / Low Data"
 
 PROJECT_NAME = "PartnerLens"
 PROJECT_TAGLINE = "Partner Segmentation & Performance Intelligence"

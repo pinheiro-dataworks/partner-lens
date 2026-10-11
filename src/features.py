@@ -14,7 +14,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from . import config
+from . import config, data_loader
 
 
 def build_seller_order_pairs(items: pd.DataFrame, orders: pd.DataFrame) -> pd.DataFrame:
@@ -114,6 +114,26 @@ def build_seller_features(pairs: pd.DataFrame, reference_date: pd.Timestamp) -> 
     features["neg_review_rate"] = features["neg_review_rate"].fillna(features["neg_review_rate"].median())
 
     return features
+
+
+def build_feature_table(tables: dict[str, pd.DataFrame]) -> tuple[pd.DataFrame, pd.DataFrame, pd.Timestamp]:
+    """Raw Olist tables -> (seller-order pairs, seller-level features, reference date).
+
+    Recency is measured against the dataset's last purchase timestamp, never
+    today(): the data is a historical snapshot, and a wall-clock reference
+    would make every re-run produce different features.
+    """
+    reviews_dedup = data_loader.dedupe_reviews(tables["order_reviews"])
+    pairs = build_seller_order_pairs(tables["order_items"], tables["orders"])
+    pairs = attach_review_scores(pairs, reviews_dedup)
+
+    reference_date = tables["orders"]["order_purchase_timestamp"].max()
+    seller_features = build_seller_features(pairs, reference_date)
+    seller_features = seller_features.merge(
+        tables["sellers"][["seller_id", "seller_state", "seller_city"]], on="seller_id", how="left"
+    )
+    seller_features = add_log_features(seller_features)
+    return pairs, seller_features, reference_date
 
 
 def apply_min_order_threshold(features: pd.DataFrame, min_orders: int = config.MIN_ORDERS_THRESHOLD) -> tuple[pd.DataFrame, pd.DataFrame]:

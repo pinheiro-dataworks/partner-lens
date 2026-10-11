@@ -26,48 +26,63 @@ def fit_health_score_bounds(eligible: pd.DataFrame) -> dict:
     return bounds
 
 
-def compute_health_score(df: pd.DataFrame, bounds: dict, weights: dict = config.HEALTH_SCORE_WEIGHTS) -> pd.Series:
-    """Weighted 0-100 composite. Recency, delay, negative reviews and
-    cancellations are 'bad when high', so they enter inverted -- +1 always
-    means healthier once combined. Weights favor quality (0.55) over raw
-    volume (0.45); see config.HEALTH_SCORE_WEIGHTS for the business rationale.
-    """
-    rev = _minmax_norm(np.log1p(df["total_revenue"]), *bounds["total_revenue"])
-    freq = _minmax_norm(np.log1p(df["frequency"]), *bounds["frequency"])
-    recency = 1 - _minmax_norm(df["recency_days"], *bounds["recency_days"])
-    delay = 1 - _minmax_norm(df["avg_delay_days"], *bounds["avg_delay_days"])
-    neg_review = 1 - df["neg_review_rate"].clip(0, 1)
-    cancel = 1 - df["cancel_rate"].clip(0, 1)
+def health_components(df: pd.DataFrame, bounds: dict) -> pd.DataFrame:
+    """Each health-score input normalized to [0, 1] and oriented so 1 is healthier.
 
-    score = (
-        weights["revenue"] * rev
-        + weights["frequency"] * freq
-        + weights["recency"] * recency
-        + weights["delay"] * delay
-        + weights["neg_review"] * neg_review
-        + weights["cancel"] * cancel
+    Recency, delay, negative reviews and cancellations are 'bad when high',
+    so they enter inverted. The app's radar charts read these same columns,
+    which keeps what the chart shows identical to what the score weighs.
+    """
+    return pd.DataFrame(
+        {
+            "revenue": _minmax_norm(np.log1p(df["total_revenue"]), *bounds["total_revenue"]),
+            "frequency": _minmax_norm(np.log1p(df["frequency"]), *bounds["frequency"]),
+            "recency": 1 - _minmax_norm(df["recency_days"], *bounds["recency_days"]),
+            "delay": 1 - _minmax_norm(df["avg_delay_days"], *bounds["avg_delay_days"]),
+            "neg_review": 1 - df["neg_review_rate"].clip(0, 1),
+            "cancel": 1 - df["cancel_rate"].clip(0, 1),
+        },
+        index=df.index,
     )
+
+
+def compute_health_score(df: pd.DataFrame, bounds: dict, weights: dict = config.HEALTH_SCORE_WEIGHTS) -> pd.Series:
+    """Weighted 0-100 composite of health_components(). Weights favor quality
+    (0.55) over raw volume (0.45); see configs/pipeline.yaml for the business
+    rationale.
+    """
+    components = health_components(df, bounds)
+    score = sum(weights[name] * components[name] for name in components.columns)
     return (100 * score).clip(0, 100)
 
 
-def health_tier(score: float) -> str:
-    if score >= 75:
-        return "Strong"
-    if score >= 50:
-        return "Stable"
-    if score >= 30:
-        return "Fragile"
+def radar_profile(df: pd.DataFrame, bounds: dict) -> list[float]:
+    """Median of each health component across df's rows, in health_components() order.
+
+    Used for both single-seller and segment radars, so a seller and its
+    segment are always plotted on the same normalized axes.
+    """
+    return [float(v) for v in health_components(df, bounds).median()]
+
+
+TIER_COLORS = {
+    "Strong": config.PALETTE["green"],
+    "Stable": config.PALETTE["gold"],
+    "Fragile": config.PALETTE["rust"],
+    "Critical": config.PALETTE["red"],
+}
+
+
+def health_tier(score: float, tiers: dict[str, float] = config.HEALTH_TIERS) -> str:
+    """Highest tier whose lower bound the score reaches; "Critical" below all of them."""
+    for name, lower_bound in sorted(tiers.items(), key=lambda kv: kv[1], reverse=True):
+        if score >= lower_bound:
+            return name
     return "Critical"
 
 
 def health_tier_color(score: float) -> str:
-    if score >= 75:
-        return config.PALETTE["green"]
-    if score >= 50:
-        return config.PALETTE["gold"]
-    if score >= 30:
-        return config.PALETTE["rust"]
-    return config.PALETTE["red"]
+    return TIER_COLORS[health_tier(score)]
 
 
 def build_cluster_profile_table(
