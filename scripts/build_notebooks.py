@@ -14,23 +14,26 @@ import nbformat as nbf
 ROOT = Path(__file__).resolve().parent.parent
 NOTEBOOKS_DIR = ROOT / "notebooks"
 
-SETUP_CELL = '''\
+
+def setup_cell(modules: str, with_numpy: bool = False) -> str:
+    """First code cell of each notebook, importing only what that notebook uses."""
+    numpy_import = "import numpy as np\n" if with_numpy else ""
+    return f"""\
 import sys
 from pathlib import Path
 
 import matplotlib.pyplot as plt
-import numpy as np
-import pandas as pd
+{numpy_import}import pandas as pd
 
 sys.path.insert(0, str(Path.cwd().parent))
-from src import clustering, config, data_loader, features, profiling, segmentation
+from src import {modules}
 
 plt.rcParams["figure.facecolor"] = "white"
 plt.rcParams["axes.grid"] = True
 plt.rcParams["grid.alpha"] = 0.3
 pd.set_option("display.max_columns", 20)
 pd.set_option("display.width", 140)
-'''
+"""
 
 # ---------------------------------------------------------------- 01_eda ----
 EDA_CELLS = [
@@ -42,7 +45,7 @@ schema has traps that would silently distort seller-level aggregates, and how sk
 the underlying distributions are before any transformation.
 
 Findings here justify every decision in `src/features.py` and `src/data_loader.py`."""),
-    ("code", SETUP_CELL),
+    ("code", setup_cell("data_loader, features", with_numpy=True)),
     ("md", "## 1. Load raw tables and check referential integrity\n\nEvery join risks silent row loss. Check before joining, not after."),
     ("code", '''\
 tables, quality_report = data_loader.load_and_validate()
@@ -125,7 +128,7 @@ FEATURES_CELLS = [
 Builds the seller-order pair table (the atomic unit for every seller-level metric) and
 aggregates it into one row per seller. See `src/features.py` for the implementation;
 this notebook is the narrative and sensitivity analysis behind those choices."""),
-    ("code", SETUP_CELL),
+    ("code", setup_cell("config, data_loader, features")),
     ("code", '''\
 tables, _ = data_loader.load_and_validate()'''),
     ("md", """## 1. Seller-order pairs
@@ -193,7 +196,7 @@ CLUSTERING_CELLS = [
 K-Means on `StandardScaler`-transformed, `log1p`-treated seller features, with an
 honest DBSCAN stress test and a PCA(2) projection used strictly for visualization.
 Produces the artifacts consumed by the Streamlit app's Segmentation and Profiles tabs."""),
-    ("code", SETUP_CELL),
+    ("code", setup_cell("clustering, config, data_loader, features, profiling, segmentation")),
     ("code", '''\
 tables, _ = data_loader.load_and_validate()
 _, seller_features, _ = features.build_feature_table(tables)
@@ -205,8 +208,10 @@ corr = eligible[config.CANDIDATE_FEATURES].corr(method="pearson")
 
 fig, ax = plt.subplots(figsize=(6, 5))
 im = ax.imshow(corr, cmap="RdBu_r", vmin=-1, vmax=1)
-ax.set_xticks(range(len(corr))); ax.set_xticklabels(corr.columns, rotation=45, ha="right")
-ax.set_yticks(range(len(corr))); ax.set_yticklabels(corr.columns)
+ax.set_xticks(range(len(corr)))
+ax.set_xticklabels(corr.columns, rotation=45, ha="right")
+ax.set_yticks(range(len(corr)))
+ax.set_yticklabels(corr.columns)
 for i in range(len(corr)):
     for j in range(len(corr)):
         ax.text(j, i, f"{corr.iloc[i, j]:.2f}", ha="center", va="center", fontsize=8)
@@ -229,7 +234,8 @@ elbow_df'''),
     ("code", '''\
 fig, ax1 = plt.subplots(figsize=(7, 4))
 ax1.plot(elbow_df["k"], elbow_df["inertia"], "o-", color="#4FB3A9")
-ax1.set_xlabel("k"); ax1.set_ylabel("inertia", color="#4FB3A9")
+ax1.set_xlabel("k")
+ax1.set_ylabel("inertia", color="#4FB3A9")
 ax2 = ax1.twinx()
 ax2.plot(elbow_df["k"], elbow_df["silhouette"], "o-", color="#E8A33D")
 ax2.set_ylabel("silhouette", color="#E8A33D")
@@ -308,10 +314,12 @@ eligible["pc1"], eligible["pc2"] = pca_coords[:, 0], pca_coords[:, 1]
 
 fig, ax = plt.subplots(figsize=(6.5, 5))
 colors = ["#E8A33D", "#4FB3A9", "#8B85C7", "#C1694A", "#D6685F"]
-for c, color in zip(sorted(eligible["cluster"].unique()), colors):
+for c, color in zip(sorted(eligible["cluster"].unique()), colors, strict=True):
     sub = eligible[eligible["cluster"] == c]
     ax.scatter(sub["pc1"], sub["pc2"], s=8, alpha=0.5, color=color, label=f"cluster {c}")
-ax.set_xlabel("PC1"); ax.set_ylabel("PC2"); ax.legend(markerscale=2)
+ax.set_xlabel("PC1")
+ax.set_ylabel("PC2")
+ax.legend(markerscale=2)
 ax.set_title("K-Means (k=5) clusters projected onto PC1/PC2")
 plt.tight_layout()
 plt.show()'''),
