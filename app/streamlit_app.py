@@ -496,18 +496,9 @@ def render_segment_explorer(sellers: pd.DataFrame, profiles: list[dict]) -> None
             st.markdown(f"<h3>{choice} vs. marketplace</h3>", unsafe_allow_html=True)
             cats = ["Revenue", "Frequency", "Recency", "Delivery delay", "Review quality", "Cancel control"]
 
-            def radar_values(df: pd.DataFrame) -> list[float]:
-                bounds = load_diagnostics()["health_score_bounds"]
-                rev = ((np.log1p(df["total_revenue"]).median() - bounds["total_revenue"][0]) / (bounds["total_revenue"][1] - bounds["total_revenue"][0]))
-                freq = ((np.log1p(df["frequency"]).median() - bounds["frequency"][0]) / (bounds["frequency"][1] - bounds["frequency"][0]))
-                rec = 1 - ((df["recency_days"].median() - bounds["recency_days"][0]) / (bounds["recency_days"][1] - bounds["recency_days"][0]))
-                delay = 1 - ((df["avg_delay_days"].median() - bounds["avg_delay_days"][0]) / (bounds["avg_delay_days"][1] - bounds["avg_delay_days"][0]))
-                neg = 1 - df["neg_review_rate"].median()
-                can = 1 - df["cancel_rate"].median()
-                return [float(np.clip(v, 0, 1)) for v in [rev, freq, rec, delay, neg, can]]
-
-            seg_vals = radar_values(seg_rows)
-            pop_vals = radar_values(pop_rows)
+            bounds = load_diagnostics()["health_score_bounds"]
+            seg_vals = profiling.radar_profile(seg_rows, bounds)
+            pop_vals = profiling.radar_profile(pop_rows, bounds)
             fig = go.Figure()
             fig.add_trace(go.Scatterpolar(r=pop_vals + pop_vals[:1], theta=cats + cats[:1], name="Marketplace avg", fill="toself", fillcolor="rgba(155,161,173,0.08)", line=dict(color=PALETTE["text_tertiary"], width=1.5, dash="dot")))
             fig.add_trace(go.Scatterpolar(r=seg_vals + seg_vals[:1], theta=cats + cats[:1], name=choice, fill="toself", fillcolor=hex_to_rgba(p["color"], 0.2), line=dict(color=p["color"], width=2)))
@@ -628,18 +619,8 @@ def render_seller_lookup(sellers: pd.DataFrame) -> None:
 
             cats = ["Revenue", "Frequency", "Recency", "Delivery delay", "Review quality", "Cancel control"]
             bounds = load_diagnostics()["health_score_bounds"]
-
-            def seller_radar(row) -> list[float]:
-                rev = (np.log1p(row["total_revenue"]) - bounds["total_revenue"][0]) / (bounds["total_revenue"][1] - bounds["total_revenue"][0])
-                freq = (np.log1p(row["frequency"]) - bounds["frequency"][0]) / (bounds["frequency"][1] - bounds["frequency"][0])
-                rec = 1 - (row["recency_days"] - bounds["recency_days"][0]) / (bounds["recency_days"][1] - bounds["recency_days"][0])
-                delay = 1 - (row["avg_delay_days"] - bounds["avg_delay_days"][0]) / (bounds["avg_delay_days"][1] - bounds["avg_delay_days"][0])
-                neg = 1 - row["neg_review_rate"]
-                can = 1 - row["cancel_rate"]
-                return [float(np.clip(v, 0, 1)) for v in [rev, freq, rec, delay, neg, can]]
-
-            seller_vals = seller_radar(s)
-            seg_vals = seller_radar(seg_rows.median(numeric_only=True))
+            seller_vals = profiling.radar_profile(table_source[table_source["seller_id"] == selected_id].head(1), bounds)
+            seg_vals = profiling.radar_profile(seg_rows, bounds)
             fig = go.Figure()
             fig.add_trace(go.Scatterpolar(r=seg_vals + seg_vals[:1], theta=cats + cats[:1], name=f"{s['segment_name']} median", fill="toself", fillcolor="rgba(155,161,173,0.08)", line=dict(color=PALETTE["text_tertiary"], width=1.5, dash="dot")))
             fig.add_trace(go.Scatterpolar(r=seller_vals + seller_vals[:1], theta=cats + cats[:1], name=s["seller_id"][:10], fill="toself", fillcolor=hex_to_rgba(s["segment_color"], 0.2), line=dict(color=s["segment_color"], width=2)))
