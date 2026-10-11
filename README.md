@@ -10,6 +10,9 @@ PartnerLens segments Olist **sellers** — not customers, not orders — into na
 
 > Developed by [Renan Pinheiro](https://github.com/pinheiro-dataworks)
 
+[![CI](https://github.com/pinheiro-dataworks/partner-lens/actions/workflows/ci.yml/badge.svg)](https://github.com/pinheiro-dataworks/partner-lens/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 ![Overview tab](docs/screenshots/overview.png)
 
 ## Problem
@@ -58,54 +61,130 @@ See the **Segment Explorer** tab for the full set, each with a specific recommen
 
 ![Seller Lookup tab](docs/screenshots/seller_lookup.png)
 
-## Limitations & next steps
+## Reproducing the reported numbers
 
-- Review-score attribution to multi-seller orders (1.3% of orders) is an approximation inherent to the source schema, not something a modeling choice downstream can fix.
-- This is a **snapshot**, not a trend: the dataset ends 2018-10-17, and every feature is computed against that fixed reference date, never `today()`. A seller's segment membership *over time* — not just at a point in time — is the natural extension.
-- DBSCAN's noise set (sellers in sparse regions of the feature space) is computed but not yet surfaced as its own worklist in the app; that's a natural addition for a "manual review" queue.
+Every figure in this README comes from the versioned artifacts in `data/processed/`, which a fresh run of `python scripts/build_pipeline.py` reproduces. The headline figures and where to find them:
+
+| Claim | Value | Source |
+|---|---:|---|
+| Premium & Consistent share of sellers | 21.9% | `cluster_profiles.json` → `premium.seller_share_pct` (21.91) |
+| Premium & Consistent share of GMV | 80.8% | `cluster_profiles.json` → `premium.revenue_share_pct` (80.80) |
+| Mean pairwise ARI, k=5, 5 seeds | 0.980 | `model_diagnostics.json` → `stability_ari_mean` (0.9801) |
+| Silhouette at k=5 / k=2 | 0.250 / 0.405 | `model_diagnostics.json` → `elbow_silhouette` |
+| Sellers / revenue kept at ≥5 orders | 58.0% / 95.8% | `model_diagnostics.json` → `threshold_sensitivity` |
+| Multi-seller orders / revenue | 1.3% / 1.98% | `model_diagnostics.json` → `multi_seller_order_stats` |
+| PCA variance explained (PC1+PC2) | 53.6% | `model_diagnostics.json` → `pca_explained_variance_sum` |
+
+K-Means runs with a fixed seed, so the segmentation itself is deterministic. Across machines, only the last floating-point digits of the K-Means inertia values in `model_diagnostics.json` change, and no reported figure moves.
+
+## Limitations
+
+- **Review attribution in multi-seller orders.** Olist attaches reviews to the order, not the line item, so every seller in a multi-seller order inherits the same score. This affects 1.3% of orders (1.98% of revenue). The source schema causes it, and no downstream modeling choice can fix it.
+- **A snapshot, not a trend.** The dataset ends on 2018-10-17, and recency is measured against that date. The segmentation describes sellers at one point in time and says nothing about how they move between segments.
+- **Health-score weights are a business judgment.** The 0.55 quality / 0.45 volume split encodes a stated priority. It is not fitted to, or validated against, an outcome such as seller churn or GMV loss, and the score's sensitivity to the weights has not been analyzed.
+- **Modest cluster separation.** The silhouette at k=5 is 0.250. Seller behavior is a continuum without density gaps, as the DBSCAN stress test confirms, so segment boundaries are useful cut points rather than natural groups. The PCA scatter covers 53.6% of the variance and is illustrative only.
+- **Segment naming assumes k=5.** `profiling.name_segments` assigns five named profiles by rank, and the descriptive copy in `profiling.SEGMENT_META` was written against this run's medians. If you change `n_clusters`, the threshold or the feature set in `configs/pipeline.yaml`, re-read that copy before publishing.
+- **Tests run on synthetic data.** The pytest suite checks the logic and its invariants on a small generated fixture. Matching the real-data numbers requires the Kaggle CSVs and a pipeline run, which CI does not do because the raw data is not redistributed in this repository.
+
+## Next steps
+
+- Track segment membership over time (rolling reference dates) so that transitions such as Emerging → Premium can be measured instead of assumed.
+- Surface the DBSCAN noise set as a manual-review worklist in the app. It is computed and stored in `sellers_segmented.parquet` but not yet shown.
+- Run a sensitivity analysis on the health-score weights.
 
 ## Repository structure
 
 ```
-partnerlens/
-├── data/
-│   ├── raw/          # Olist CSVs from Kaggle (gitignored -- see Setup below)
-│   └── processed/     # parquet + JSON artifacts the app reads (versioned)
-├── notebooks/          # 01_eda -> 02_features -> 03_clustering, executed
-├── src/
-│   ├── config.py       # paths, seed, thresholds, weights, palette -- no magic numbers elsewhere
-│   ├── data_loader.py  # raw CSV loading + referential-integrity validation
-│   ├── features.py     # seller-order pairs -> seller-level feature matrix
-│   ├── clustering.py   # K-Means pipeline, k-selection, stability, DBSCAN, PCA
-│   └── profiling.py    # health score, segment naming, quantified recommendations
-├── scripts/
-│   ├── build_pipeline.py    # runs the full offline pipeline, writes data/processed/
-│   └── build_notebooks.py   # (re)generates the notebooks/ from their cell definitions
+partner-lens/
+├── .github/workflows/ci.yml   # ruff + pytest on every pull request and push to main
 ├── app/
-│   ├── streamlit_app.py
+│   ├── streamlit_app.py       # reads data/processed/ only, trains nothing
 │   └── assets/Logo_White.png
+├── configs/
+│   └── pipeline.yaml          # seed, thresholds, k, health-score weights and tiers
+├── data/
+│   ├── raw/                   # Olist CSVs from Kaggle (gitignored)
+│   └── processed/             # artifacts served by the app (see Data policy)
 ├── design/
 │   └── partnerlens_dashboard_prototype.html   # original static design sketch
-├── requirements.txt      # pinned, for the deployed app
-├── requirements-dev.txt  # + notebook tooling
-└── README.md
+├── notebooks/                 # 01_eda -> 02_features -> 03_clustering, executed
+├── scripts/
+│   ├── build_pipeline.py      # raw CSVs -> data/processed/ (diagnostics + I/O)
+│   └── build_notebooks.py     # (re)generates notebooks/ from cell definitions
+├── src/
+│   ├── config.py              # loads configs/pipeline.yaml; paths, labels, palette
+│   ├── data_loader.py         # raw CSV loading + referential-integrity checks
+│   ├── features.py            # seller-order pairs -> seller-level feature matrix
+│   ├── clustering.py          # K-Means pipeline, k-selection, ARI stability, DBSCAN, PCA
+│   ├── profiling.py           # health score, segment naming, quantified recommendations
+│   └── segmentation.py        # minimum-order split, New / Low Data rule, segment assignment
+├── tests/                     # pytest suite on a synthetic Olist-shaped fixture
+├── pyproject.toml             # ruff + pytest configuration
+├── requirements.txt           # pinned runtime dependencies (pipeline + app)
+├── requirements-dev.txt       # + notebooks, pytest, ruff
+└── LICENSE
 ```
 
-## Setup
+## How to run
 
-1. Download the [Olist Brazilian E-Commerce dataset](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce) from Kaggle and place the 9 CSVs in `data/raw/`.
-2. `pip install -r requirements.txt` (add `requirements-dev.txt` instead if you also want to re-run the notebooks).
-3. Build the processed artifacts: `python scripts/build_pipeline.py`. This reads `data/raw/`, validates referential integrity, builds seller-order pairs and features, fits the K-Means model, runs the DBSCAN stress test, and writes `data/processed/*.parquet` + `*.json`.
-4. Run the app: `streamlit run app/streamlit_app.py`.
+Requires Python 3.11 or newer (CI runs 3.12). Run every command from the repository root.
 
-The app never touches `data/raw/` or trains anything — it only reads the artifacts from step 3.
+```bash
+# 1. Environment
+python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install -r requirements-dev.txt
+
+# 2. Data: the 9 Olist CSVs into data/raw/
+#    Needs a Kaggle API token (https://www.kaggle.com/docs/api). You can also
+#    download the zip manually from
+#    https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce and extract it to data/raw/.
+pip install kaggle
+kaggle datasets download olistbr/brazilian-ecommerce -p data/raw --unzip
+
+# 3. Features + training: validates the raw tables, builds seller-order pairs and
+#    seller features, runs the k-selection / stability / DBSCAN diagnostics, fits
+#    K-Means and writes data/processed/
+python scripts/build_pipeline.py
+
+# 4. Notebooks: regenerate from scripts/build_notebooks.py, then execute
+python scripts/build_notebooks.py
+jupyter nbconvert --to notebook --execute --inplace notebooks/01_eda.ipynb
+jupyter nbconvert --to notebook --execute --inplace notebooks/02_features.ipynb
+jupyter nbconvert --to notebook --execute --inplace notebooks/03_clustering.ipynb
+
+# 5. App
+streamlit run app/streamlit_app.py
+
+# 6. Tests and lint (no raw data needed)
+pytest
+ruff check .
+```
+
+The app and the test suite need only the versioned artifacts, so you can skip steps 2–4 to browse the app or run the tests.
+
+## Data policy
+
+- **`data/raw/`** is not versioned. The Olist dataset is published on Kaggle under its own license (CC BY-NC-SA 4.0), so download it from the source instead of copying it here.
+- **`data/processed/`** versions only what the app serves: `sellers_segmented.parquet`, `cluster_profiles.json`, `model_diagnostics.json` and `data_quality_report.json`. This lets the app and the test suite run on a fresh clone without the raw data.
+- **Pipeline intermediates are not versioned.** `seller_order_pairs.parquet` (~6 MB) and `seller_features_all.parquet` are written by `scripts/build_pipeline.py` for inspection and debugging. Neither the app nor the notebooks read them, and step 3 above regenerates them.
+- **Regenerate artifacts whenever `src/` or `configs/` changes.** Commit the regenerated served artifacts in the same pull request as the code change, so the numbers the app shows always match the code.
 
 ## Notebooks
 
-- `01_eda.ipynb` — relational integrity checks, the multi-seller-order limitation quantified, revenue/review-score distributions.
-- `02_features.ipynb` — seller-order pair construction, the minimum-order threshold sensitivity analysis, log1p skew treatment.
-- `03_clustering.ipynb` — feature correlation and the frequency-drop decision, k-selection (elbow/silhouette/stability), the DBSCAN stress test, PCA caveats, final segment naming.
+- `01_eda.ipynb` covers relational integrity checks, the multi-seller-order limitation quantified, and the revenue and review-score distributions.
+- `02_features.ipynb` covers seller-order pair construction, the minimum-order threshold sensitivity analysis and the log1p skew treatment.
+- `03_clustering.ipynb` covers feature correlation and the decision to drop frequency, k-selection (elbow, silhouette and stability), the DBSCAN stress test, PCA caveats, and final segment naming.
+
+The notebooks import the same `src/` functions as the pipeline and the app. They narrate the decisions but do not re-implement the logic.
 
 ## Stack
 
-Python, pandas, scikit-learn (StandardScaler + KMeans pipeline, DBSCAN, PCA), Plotly, Streamlit. No model is trained at app runtime.
+Python, pandas, scikit-learn (StandardScaler + KMeans pipeline, DBSCAN, PCA), Plotly, Streamlit, pytest, ruff, GitHub Actions. No model is trained at app runtime.
+
+## Development history
+
+Developed locally and published as a snapshot; subsequent changes tracked via pull requests.
+
+## License
+
+[MIT](LICENSE). The Olist dataset is not covered by this license; see its [Kaggle page](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce) for its terms.
