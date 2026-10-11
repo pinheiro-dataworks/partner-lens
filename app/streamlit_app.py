@@ -632,11 +632,11 @@ def render_seller_lookup(sellers: pd.DataFrame) -> None:
             )
             st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
-            if s["segment_key"] == "new_low_data":
+            if s["segment_key"] == config.NEW_LOW_DATA_KEY:
                 action = f"Fewer than {config.MIN_ORDERS_THRESHOLD} orders on record -- not yet eligible for formal segmentation. Monitor early quality signals."
             else:
                 action = next(p["action"] for p in load_profiles() if p["segment_key"] == s["segment_key"])
-            action_tag = "MONITOR" if s["segment_key"] == "new_low_data" else next(p["action_tag"] for p in load_profiles() if p["segment_key"] == s["segment_key"])
+            action_tag = "MONITOR" if s["segment_key"] == config.NEW_LOW_DATA_KEY else next(p["action_tag"] for p in load_profiles() if p["segment_key"] == s["segment_key"])
             st.markdown(
                 f"""<div style="border-top:1px solid {PALETTE['border']}; padding-top:12px;">
                 {segment_pill(action_tag, s['segment_color'])}

@@ -118,11 +118,22 @@ PALETTE = {
     "green": "#6FBF7D",
 }
 
-# Assigned to clusters in rank order (highest health score first) at profiling
-# time -- see profiling.name_segments(). Kept separate from cluster_id because
-# raw KMeans labels are arbitrary and not stable in meaning across re-runs.
-SEGMENT_COLOR_ORDER = [PALETTE["gold"], PALETTE["teal"], PALETTE["violet"], PALETTE["rust"], PALETTE["red"]]
+# Keyed by segment key, never by cluster id: raw K-Means labels are arbitrary
+# and not stable in meaning across re-runs (see profiling.name_segments()).
+SEGMENT_COLORS = {
+    "premium": PALETTE["gold"],
+    "emerging": PALETTE["teal"],
+    "declining": PALETTE["violet"],
+    "underperforming": PALETTE["rust"],
+    "atrisk": PALETTE["red"],
+}
 EXCLUDED_SEGMENT_COLOR = PALETTE["text_tertiary"]
+
+# Sellers below MIN_ORDERS_THRESHOLD are not clustered; they carry this
+# sentinel cluster id and segment instead.
+NEW_LOW_DATA_CLUSTER = -1
+NEW_LOW_DATA_KEY = "new_low_data"
+NEW_LOW_DATA_NAME = "New / Low Data"
 
 PROJECT_NAME = "PartnerLens"
 PROJECT_TAGLINE = "Partner Segmentation & Performance Intelligence"

@@ -23,7 +23,7 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, str(Path.cwd().parent))
-from src import clustering, config, data_loader, features, profiling
+from src import clustering, config, data_loader, features, profiling, segmentation
 
 plt.rcParams["figure.facecolor"] = "white"
 plt.rcParams["axes.grid"] = True
@@ -301,9 +301,9 @@ back into "this segment has high revenue / high recency" rather than an uninterp
 PCA axis."""),
     ("md", "## 7. Final model, cluster profiles, and segment naming"),
     ("code", '''\
-final_pipe = clustering.fit_final_model(X, k=config.N_CLUSTERS)
-eligible = eligible.copy()
-eligible["cluster"] = final_pipe.named_steps["kmeans"].labels_
+result = segmentation.segment_sellers(seller_features)
+assert (result.clustered["seller_id"].to_numpy() == eligible["seller_id"].to_numpy()).all()
+eligible = result.clustered.copy()
 eligible["pc1"], eligible["pc2"] = pca_coords[:, 0], pca_coords[:, 1]
 
 fig, ax = plt.subplots(figsize=(6.5, 5))
@@ -316,15 +316,9 @@ ax.set_title("K-Means (k=5) clusters projected onto PC1/PC2")
 plt.tight_layout()
 plt.show()'''),
     ("code", '''\
-bounds = profiling.fit_health_score_bounds(eligible)
-eligible["health_score"] = profiling.compute_health_score(eligible, bounds)
-
-grand_total_revenue = seller_features["total_revenue"].sum()
-grand_total_sellers = len(seller_features)
-profile_table = profiling.build_cluster_profile_table(
-    eligible, total_revenue=grand_total_revenue, total_sellers=grand_total_sellers
-)
-cluster_to_key = profiling.name_segments(profile_table, eligible)
+profile_table = result.profile_table.copy()
+cluster_to_key = result.cluster_to_key
+print(f"New / Low Data (< {config.MIN_ORDERS_THRESHOLD} orders, not clustered): {len(result.new_low_data):,} sellers")
 profile_table["segment_name"] = profile_table["cluster"].map(
     lambda c: profiling.SEGMENT_META[cluster_to_key[c]]["name"]
 )
