@@ -127,10 +127,7 @@ aggregates it into one row per seller. See `src/features.py` for the implementat
 this notebook is the narrative and sensitivity analysis behind those choices."""),
     ("code", SETUP_CELL),
     ("code", '''\
-tables, _ = data_loader.load_and_validate()
-reviews_dedup = data_loader.dedupe_reviews(tables["order_reviews"])
-reference_date = tables["orders"]["order_purchase_timestamp"].max()
-print("reference date:", reference_date)'''),
+tables, _ = data_loader.load_and_validate()'''),
     ("md", """## 1. Seller-order pairs
 
 One row = one seller's participation in one order. Aggregating straight from
@@ -138,15 +135,13 @@ One row = one seller's participation in one order. Aggregating straight from
 the same order; aggregating straight from `orders` would credit a seller with revenue
 from items they didn't sell. The pair table makes both correct by construction."""),
     ("code", '''\
-pairs = features.build_seller_order_pairs(tables["order_items"], tables["orders"])
-pairs = features.attach_review_scores(pairs, reviews_dedup)
+pairs, seller_features, reference_date = features.build_feature_table(tables)
+print("reference date:", reference_date)
 print(f"{len(pairs):,} seller-order pairs from {tables['order_items']['order_id'].nunique():,} orders "
       f"and {pairs['seller_id'].nunique():,} sellers")
 pairs.head(3)'''),
     ("md", "## 2. Seller-level feature matrix"),
     ("code", '''\
-seller_features = features.build_seller_features(pairs, reference_date)
-seller_features = features.add_log_features(seller_features)
 print(f"{len(seller_features):,} sellers, {seller_features['delivery_data_imputed'].sum()} with "
       f"imputed delivery metrics, {seller_features['review_data_imputed'].sum()} with imputed review rate")
 seller_features[config.RAW_FEATURES + ["frequency"]].describe()'''),
@@ -201,13 +196,7 @@ Produces the artifacts consumed by the Streamlit app's Segmentation and Profiles
     ("code", SETUP_CELL),
     ("code", '''\
 tables, _ = data_loader.load_and_validate()
-reviews_dedup = data_loader.dedupe_reviews(tables["order_reviews"])
-reference_date = tables["orders"]["order_purchase_timestamp"].max()
-
-pairs = features.build_seller_order_pairs(tables["order_items"], tables["orders"])
-pairs = features.attach_review_scores(pairs, reviews_dedup)
-seller_features = features.build_seller_features(pairs, reference_date)
-seller_features = features.add_log_features(seller_features)
+_, seller_features, _ = features.build_feature_table(tables)
 eligible, excluded = features.apply_min_order_threshold(seller_features)
 print(f"eligible: {len(eligible):,}")'''),
     ("md", "## 1. Feature correlation -- does the candidate set need trimming?"),

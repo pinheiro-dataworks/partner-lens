@@ -29,28 +29,14 @@ def main() -> None:
     tables, quality_report = data_loader.load_and_validate()
     log(f"data quality report: {quality_report}")
 
-    log("Deduplicating reviews and aggregating geolocation...")
-    reviews_dedup = data_loader.dedupe_reviews(tables["order_reviews"])
-    _ = data_loader.aggregate_geolocation(tables["geolocation"])  # validated, kept for completeness
-
-    log("Building seller-order pairs...")
-    pairs = features.build_seller_order_pairs(tables["order_items"], tables["orders"])
-    pairs = features.attach_review_scores(pairs, reviews_dedup)
+    log("Building seller-order pairs and seller-level features...")
+    pairs, seller_features, reference_date = features.build_feature_table(tables)
     pairs.to_parquet(config.PROCESSED_FILES["seller_order_pairs"], index=False)
     log(f"seller_order_pairs: {len(pairs):,} rows")
+    log(f"reference date (max order_purchase_timestamp): {reference_date}")
 
     multi_seller_stats = features.multi_seller_order_stats(tables["order_items"])
     log(f"multi-seller order stats: {multi_seller_stats}")
-
-    reference_date = tables["orders"]["order_purchase_timestamp"].max()
-    log(f"reference date (max order_purchase_timestamp): {reference_date}")
-
-    log("Building seller-level features...")
-    seller_features = features.build_seller_features(pairs, reference_date)
-    seller_features = seller_features.merge(
-        tables["sellers"][["seller_id", "seller_state", "seller_city"]], on="seller_id", how="left"
-    )
-    seller_features = features.add_log_features(seller_features)
 
     sensitivity = features.threshold_sensitivity(seller_features)
     log(f"threshold sensitivity:\n{sensitivity}")
